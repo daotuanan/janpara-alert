@@ -35,7 +35,7 @@ load_dotenv(dotenv_path=ENV_PATH, override=True)
 BASE_URL = "https://www.janpara.co.jp"
 
 SORT_ORDER = "4"         # ORDER=4 → newest first
-MAX_PAGES = 8
+MAX_PAGES = 20
 REQUEST_DELAY_SEC = 1.3
 HTTP_TIMEOUT_SEC = 20
 REQUIRE_PRICE = True
@@ -546,7 +546,10 @@ def send_email(subject: str, body: str):
 # MAIN
 # =========================
 def main():
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+    logging.basicConfig(level=getattr(logging, log_level, logging.INFO),
+                    format="%(asctime)s %(levelname)s %(message)s")
+
     state = load_state()
     grouped = []
     any_success = False
