@@ -15,15 +15,15 @@ from pathlib import Path
 from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse, urljoin
 
 import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
 from dotenv import load_dotenv
-
-from bs4 import XMLParsedAsHTMLWarning
 import warnings
+
+# Silence "XMLParsedAsHTMLWarning" from BeautifulSoup (pages are HTML)
 warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
 # =========================
-# .env LOADING (for local runs; Actions uses secrets via env)
+# .env LOADING (for local runs; Actions uses env secrets)
 # =========================
 HERE = Path(__file__).resolve().parent
 ENV_PATH = HERE / ".env"
@@ -39,7 +39,7 @@ MAX_PAGES = 8
 REQUEST_DELAY_SEC = 1.3
 HTTP_TIMEOUT_SEC = 20
 REQUIRE_PRICE = True
-ONLY_SMARTPHONE_DETAIL = True
+ONLY_SMARTPHONE_DETAIL = True  # still respected, plus stricter ITMCODE check
 
 # HTTP / retries
 MAX_RETRIES = 5
@@ -48,7 +48,7 @@ JITTER_RATIO = 0.20
 RETRY_STATUS = {429, 500, 502, 503, 504}
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) JanparaWatcher/2.5",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) JanparaWatcher/2.6",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "ja,en;q=0.9",
     "Cache-Control": "no-cache",
@@ -68,7 +68,7 @@ FEEDS = [
         "url": f"https://www.janpara.co.jp/sale/search/result/?OUTCLSCODE=46&PRBFLTWORD01_FILTER%5B0%5D=5&ORDER={SORT_ORDER}&PAGE=1",
         "paginate": True,
         "pagination": {"param": "PAGE", "cache_key": "/sale/search/result/", "require_page1": True},
-        # no must_include; URL already filters
+        # URL already brand-filters; no must_include
     },
     # Google: PRBFLTWORD01_FILTER=0
     {
@@ -76,7 +76,7 @@ FEEDS = [
         "url": f"https://www.janpara.co.jp/sale/search/result/?OUTCLSCODE=46&PRBFLTWORD01_FILTER%5B0%5D=0&ORDER={SORT_ORDER}&PAGE=1",
         "paginate": True,
         "pagination": {"param": "PAGE", "cache_key": "/sale/search/result/", "require_page1": True},
-        # no must_include; URL already filters
+        # URL already brand-filters; no must_include
     },
     # OnePlus: keyword search (plus variants)
     {
@@ -230,13 +230,16 @@ def save_state(state):
     STATE_FILE.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
 
 def is_detail_link(href: str) -> bool:
+    """
+    Treat any link containing ITMCODE= as a real product detail.
+    Explicitly exclude recommendation widgets (TYPE=rec / SRCODE).
+    """
     if not href:
         return False
     hl = href.lower()
-    # must be a detail page and have ITMCODE
-    if ("/sale/detail" in hl or "/sale/stockdetail" in hl) and "itmcode=" in hl:
-        return True
-    return False
+    if "type=rec" in hl or "srcode=" in hl:
+        return False
+    return "itmcode=" in hl
 
 def normalize_url(url: str) -> str:
     return urljoin(BASE_URL, url)
@@ -290,6 +293,9 @@ def request_get_with_retries(url: str, headers: dict, timeout: int) -> requests.
 def fetch_and_parse(url: str):
     r = request_get_with_retries(url, headers=HEADERS, timeout=HTTP_TIMEOUT_SEC)
     soup = BeautifulSoup(r.content, "lxml", from_encoding="utf-8")
+    # DEBUG: show first few candidate hrefs
+    debug = [a.get("href","") for a in soup.find_all("a", href=True)]
+    logging.debug("Found %d anchors; examples: %s", len(debug), debug[:10])
     return parse_listing_cards(soup)
 
 def parse_listing_cards(soup: BeautifulSoup):
@@ -299,7 +305,7 @@ def parse_listing_cards(soup: BeautifulSoup):
     """
     items = {}
 
-    # Only brands we care about (for title picking)
+    # Only the brands we care about (used for picking a good title string)
     brand_keywords = [
         "Xiaomi", "Redmi", "Mi ",
         "Google", "Pixel",
@@ -312,7 +318,10 @@ def parse_listing_cards(soup: BeautifulSoup):
             continue
 
         full = normalize_url(href)
-        itmcode = extract_itmcode(full) or full  # fallback to URL
+        itmcode = extract_itmcode(full)
+        if not itmcode:
+            # Guard: shouldn't happen with the stricter filter, but keep safe fallback
+            itmcode = full
 
         # find a reasonable card container
         container = a
