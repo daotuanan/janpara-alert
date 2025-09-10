@@ -811,7 +811,15 @@
     }
   },
   "OnePlus Smartphones": {
-    "seen_itmcodes": [],
-    "last_min_price_by_code": {}
+    "seen_itmcodes": [
+      "304962",
+      "316056",
+      "316061"
+    ],
+    "last_min_price_by_code": {
+      "316056": 33480,
+      "316061": 39980,
+      "304962": 29980
+    }
   }
 }
