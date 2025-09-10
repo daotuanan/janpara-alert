@@ -233,8 +233,10 @@ def is_detail_link(href: str) -> bool:
     if not href:
         return False
     hl = href.lower()
-    ok = ("/sale/detail" in hl) or ("/sale/stockdetail" in hl) or ("/sale/" in hl and "detail" in hl)
-    return ok if ONLY_SMARTPHONE_DETAIL else ("/sale/" in hl)
+    # must be a detail page and have ITMCODE
+    if ("/sale/detail" in hl or "/sale/stockdetail" in hl) and "itmcode=" in hl:
+        return True
+    return False
 
 def normalize_url(url: str) -> str:
     return urljoin(BASE_URL, url)
