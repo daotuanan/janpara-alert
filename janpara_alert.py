@@ -18,8 +18,12 @@ import requests
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 
+from bs4 import XMLParsedAsHTMLWarning
+import warnings
+warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
+
 # =========================
-# .env LOADING
+# .env LOADING (for local runs; Actions uses secrets via env)
 # =========================
 HERE = Path(__file__).resolve().parent
 ENV_PATH = HERE / ".env"
@@ -30,22 +34,21 @@ load_dotenv(dotenv_path=ENV_PATH, override=True)
 # =========================
 BASE_URL = "https://www.janpara.co.jp"
 
-# Always request "newest first"
-SORT_ORDER = "4"         # Janpara ORDER=4 → newest
-MAX_PAGES = 8            # fewer pages needed with newest-first
+SORT_ORDER = "4"         # ORDER=4 → newest first
+MAX_PAGES = 8
 REQUEST_DELAY_SEC = 1.3
 HTTP_TIMEOUT_SEC = 20
 REQUIRE_PRICE = True
 ONLY_SMARTPHONE_DETAIL = True
 
-# HTTP / pacing / retries
+# HTTP / retries
 MAX_RETRIES = 5
 BACKOFF_BASE = 1.8
 JITTER_RATIO = 0.20
 RETRY_STATUS = {429, 500, 502, 503, 504}
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) JanparaWatcher/2.3",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) JanparaWatcher/2.5",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "ja,en;q=0.9",
     "Cache-Control": "no-cache",
@@ -57,49 +60,45 @@ HEADERS = {
 STATE_FILE = (HERE / "state" / "janpara_seen.json")
 STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
 
-# Feeds with first-page URLs + brand-specific pagination rules
+# Feeds
 FEEDS = [
+    # Xiaomi: PRBFLTWORD01_FILTER=5
     {
         "name": "Xiaomi Smartphones",
-        "url": "https://www.janpara.co.jp/sale/search/result/?cache_key=/sale/search/result/&OUTCLSCODE=46&PRBFLTWORD01_FILTER%5B0%5D=5&PAGE=1",
-        "must_include": ["xiaomi", "redmi", "mi "],  # "mi " avoids matching "sim"
-        "must_not_include": ["ipad", "pad ", "case", "cover", "cable", "watch", "band", "earbuds", "buds"],
+        "url": f"https://www.janpara.co.jp/sale/search/result/?OUTCLSCODE=46&PRBFLTWORD01_FILTER%5B0%5D=5&ORDER={SORT_ORDER}&PAGE=1",
         "paginate": True,
         "pagination": {"param": "PAGE", "cache_key": "/sale/search/result/", "require_page1": True},
+        # no must_include; URL already filters
     },
+    # Google: PRBFLTWORD01_FILTER=0
     {
         "name": "Google Smartphones",
-        "url": "https://www.janpara.co.jp/sale/search/result/?cache_key=/sale/search/result/&OUTCLSCODE=46&PRBFLTWORD01_FILTER%5B0%5D=0&PAGE=1",
-        "must_include": ["google", "pixel"],
-        "must_not_include": ["ipad", "case", "cover", "watch", "band", "buds", "earbuds"],
+        "url": f"https://www.janpara.co.jp/sale/search/result/?OUTCLSCODE=46&PRBFLTWORD01_FILTER%5B0%5D=0&ORDER={SORT_ORDER}&PAGE=1",
         "paginate": True,
         "pagination": {"param": "PAGE", "cache_key": "/sale/search/result/", "require_page1": True},
+        # no must_include; URL already filters
     },
+    # OnePlus: keyword search (plus variants)
     {
         "name": "OnePlus Smartphones",
-        "url": "https://www.janpara.co.jp/sale/search/result/?SSHPCODE=&OUTCLSCODE=46&KEYWORDS=oneplus&x=0&y=0&CHKOUTCOM=1",
+        "url": f"https://www.janpara.co.jp/sale/search/result/?SSHPCODE=&OUTCLSCODE=46&KEYWORDS=oneplus&CHKOUTCOM=1&ORDER={SORT_ORDER}",
         "variants": [
-            "https://www.janpara.co.jp/sale/search/result/?SSHPCODE=&OUTCLSCODE=46&KEYWORDS=Nord&x=0&y=0&CHKOUTCOM=1",
-            "https://www.janpara.co.jp/sale/search/result/?SSHPCODE=&OUTCLSCODE=46&KEYWORDS=%E3%83%AF%E3%83%B3%E3%83%97%E3%83%A9%E3%82%B9&x=0&y=0&CHKOUTCOM=1",  # ワンプラス
+            f"https://www.janpara.co.jp/sale/search/result/?SSHPCODE=&OUTCLSCODE=46&KEYWORDS=Nord&CHKOUTCOM=1&ORDER={SORT_ORDER}",
+            f"https://www.janpara.co.jp/sale/search/result/?SSHPCODE=&OUTCLSCODE=46&KEYWORDS=%E3%83%AF%E3%83%B3%E3%83%97%E3%83%A9%E3%82%B9&CHKOUTCOM=1&ORDER={SORT_ORDER}",  # ワンプラス
         ],
-        "must_include": ["oneplus", "nord", "ワンプラス"],
-        "must_not_include": ["case", "cover", "watch", "band", "buds", "earbuds"],
+        "must_include": ["oneplus", "nord", "ワンプラス"],  # safety for keyword matches
         "paginate": True,
         "pagination": {"param": "PAGE", "cache_key": "/sale/search/result/", "require_page1": False},
     },
 ]
 
-# Busy-page detection (content strings)
+# Busy-page detection
 BUSY_PHRASES = [
     "アクセス集中により大変混み合っております。",
     "しばらく時間をおいてから再度お越し下さい",
     "Service Temporarily Unavailable",
     "503",
 ]
-
-# --- Dedup strategy: URL + price + stock ---
-# A new price or an increased stock count at the same URL will trigger a new alert.
-DEDUP_MODE = "url_price_stock"
 
 # =========================
 # PRICE HELPERS
@@ -121,7 +120,6 @@ def extract_prices_with_labels(text: str):
     return results
 
 def choose_best_price(prices):
-    """Prefer Used(中古) price; else min among labeled; else min overall. Returns '¥xx,xxx' or ''."""
     if not prices:
         return ""
     to_int = lambda v: int(v.replace(",", ""))
@@ -133,51 +131,40 @@ def choose_best_price(prices):
         return f"¥{min(labeled, key=lambda p: to_int(p['value']))['value']}"
     return f"¥{min(prices, key=lambda p: to_int(p['value']))['value']}"
 
+def extract_all_price_ints(text: str):
+    ints = []
+    for m in PRICE_RE.finditer(text or ""):
+        try:
+            ints.append(int(m.group(1).replace(",", "")))
+        except Exception:
+            pass
+    return ints
+
 def ascii_price(p: str) -> str:
-    """'¥13,980' / '13,980円' → '13,980 JPY'."""
     if not p:
         return p
     y = p.replace("円", "").replace("¥", "").strip()
     return f"{y} JPY"
 
 def price_to_int(price_str: str) -> int:
-    """Convert '13,980 JPY' (or similar) back to 13980 for dedup keys."""
     if not price_str:
         return 0
     m = re.search(r"(\d{1,3}(?:,\d{3})+)", price_str)
     return int(m.group(1).replace(",", "")) if m else 0
 
 # =========================
-# ATTRIBUTE HELPERS (color, condition, stock)
+# ATTR HELPERS
 # =========================
-COLOR_MAP = {
-    # English
-    "black": "Black", "white": "White", "blue": "Blue", "green": "Green",
-    "red": "Red", "purple": "Purple", "pink": "Pink", "silver": "Silver",
-    "gold": "Gold", "gray": "Gray", "grey": "Gray", "titanium": "Titanium",
-    "chrome": "Chrome", "midnight": "Midnight", "starlight": "Starlight",
-    # Japanese katakana
-    "ブラック": "Black", "ホワイト": "White", "ブルー": "Blue", "グリーン": "Green",
-    "レッド": "Red", "パープル": "Purple", "ピンク": "Pink", "シルバー": "Silver",
-    "ゴールド": "Gold", "グレー": "Gray", "グレイ": "Gray",
-    "ナイトフォール": "Nightfall", "ミッドナイト": "Midnight", "チタニウム": "Titanium",
-    "クローム": "Chrome",
-}
-
-def extract_color(text: str) -> str | None:
-    t = text
-    for raw, canon in sorted(COLOR_MAP.items(), key=lambda kv: -len(kv[0])):
-        if raw.lower() in t.lower():
-            return canon
-    return None
+def extract_itmcode(url: str) -> str | None:
+    m = re.search(r"[?&]ITMCODE=(\d+)", url)
+    return m.group(1) if m else None
 
 COND_RE = re.compile(r"(未使用|新品|中古\s*[SABC]?)", re.IGNORECASE)
 def extract_condition(text: str) -> str | None:
-    m = COND_RE.search(text)
+    m = COND_RE.search(text or "")
     if not m:
         return None
-    token = m.group(1)
-    token = token.replace(" ", "")
+    token = m.group(1).replace(" ", "")
     if token.startswith(("未使用", "新品")):
         return "Unused"
     if token.startswith("中古"):
@@ -187,7 +174,7 @@ def extract_condition(text: str) -> str | None:
 
 STOCK_RE = re.compile(r"(\d+)\s*個の?在庫|在庫\s*(\d+)\s*個")
 def extract_stock_count(text: str) -> int | None:
-    m = STOCK_RE.search(text)
+    m = STOCK_RE.search(text or "")
     if not m:
         return None
     val = m.group(1) or m.group(2)
@@ -200,6 +187,12 @@ def extract_stock_count(text: str) -> int | None:
 # GENERAL HELPERS
 # =========================
 def load_state():
+    """
+    state[feed] = {
+      "seen_itmcodes": ["315412", ...],
+      "last_min_price_by_code": {"315412": 5980, ...}
+    }
+    """
     if STATE_FILE.exists():
         try:
             state = json.loads(STATE_FILE.read_text(encoding="utf-8"))
@@ -208,28 +201,29 @@ def load_state():
     else:
         state = {}
 
-    # migrate relative → absolute (old schema list[str]) AND keep as-is for new dict schema
+    # normalize shape
     changed = False
     new_state = {}
     for feed, entry in list(state.items()):
-        # entry can be list[str] (old) or {"keys": [...] } (new)
-        if isinstance(entry, list):
-            # upgrade each to absolute url when possible (best-effort)
-            upgraded = []
-            for u in entry:
-                upgraded.append(u if u.startswith("http") else urljoin(BASE_URL, u))
-            new_state[feed] = {"keys": sorted(set(upgraded))}
-            changed = True
-        elif isinstance(entry, dict) and isinstance(entry.get("keys"), list):
-            # keep as-is
-            new_state[feed] = entry
-        else:
-            new_state[feed] = {"keys": []}
-            changed = True
-
+        fs = {"seen_itmcodes": [], "last_min_price_by_code": {}}
+        if isinstance(entry, dict):
+            if isinstance(entry.get("seen_itmcodes"), list):
+                fs["seen_itmcodes"] = [str(x) for x in entry["seen_itmcodes"]]
+            elif isinstance(entry.get("keys"), list):
+                fs["seen_itmcodes"] = [str(x) for x in entry["keys"]]; changed = True
+            if isinstance(entry.get("last_min_price_by_code"), dict):
+                for k, v in entry["last_min_price_by_code"].items():
+                    try:
+                        fs["last_min_price_by_code"][str(k)] = int(v)
+                    except Exception:
+                        pass
+        elif isinstance(entry, list):
+            fs["seen_itmcodes"] = [str(x) for x in entry]; changed = True
+        fs["seen_itmcodes"] = sorted(set(fs["seen_itmcodes"]))
+        new_state[feed] = fs
     if changed:
         save_state(new_state)
-        logging.info("State migration: upgraded to dict schema and absolute URLs.")
+        logging.info("State migration: normalized to ITMCODE-based schema.")
     return new_state if changed else state
 
 def save_state(state):
@@ -248,10 +242,10 @@ def normalize_url(url: str) -> str:
 def clean_text(text: str) -> str:
     if not text:
         return ""
-    text = unicodedata.normalize("NFKC", text)   # collapse full-width forms
+    text = unicodedata.normalize("NFKC", text)
     return re.sub(r"\s+", " ", text).strip()
 
-# --- retry / backoff + busy-page detection ---
+# --- retry / busy detection ---
 def _sleep_with_jitter(base: float, attempt: int):
     wait = base ** (attempt - 1)
     jitter = wait * random.uniform(-JITTER_RATIO, JITTER_RATIO)
@@ -297,9 +291,18 @@ def fetch_and_parse(url: str):
     return parse_listing_cards(soup)
 
 def parse_listing_cards(soup: BeautifulSoup):
-    """Return list of {id, title, price, store, href, color, condition, stock} parsed from product cards."""
+    """
+    Returns list of items:
+      {id(=ITMCODE), title, price, min_price_int, store, href, condition, stock}
+    """
     items = {}
-    brand_keywords = ["Xiaomi", "Redmi", "Mi ", "Google", "Pixel", "OnePlus", "Nord", "ワンプラス", "Galaxy", "iPhone", "Xperia", "AQUOS"]
+
+    # Only brands we care about (for title picking)
+    brand_keywords = [
+        "Xiaomi", "Redmi", "Mi ",
+        "Google", "Pixel",
+        "OnePlus", "Nord", "ワンプラス"
+    ]
 
     for a in soup.find_all("a", href=True):
         href = a["href"]
@@ -307,9 +310,9 @@ def parse_listing_cards(soup: BeautifulSoup):
             continue
 
         full = normalize_url(href)
-        uid = full
+        itmcode = extract_itmcode(full) or full  # fallback to URL
 
-        # Find a reasonable container (walk up a few levels)
+        # find a reasonable card container
         container = a
         for _ in range(4):
             container = container.parent
@@ -320,7 +323,7 @@ def parse_listing_cards(soup: BeautifulSoup):
 
         block_text = container.get_text(" ", strip=True) if container else a.get_text(" ", strip=True)
 
-        # Title candidates
+        # title
         title_candidates = []
         if a.get_text(strip=True):
             title_candidates.append(a.get_text(strip=True))
@@ -336,37 +339,38 @@ def parse_listing_cards(soup: BeautifulSoup):
             chosen_title = title_candidates[0] if title_candidates else full
         chosen_title = clean_text(chosen_title)
 
-        # Prices (prefer Used; else lowest)
+        # prices
         price_list = extract_prices_with_labels(block_text)
         price_raw = choose_best_price(price_list)
-        if REQUIRE_PRICE and not price_raw:
+        all_ints = extract_all_price_ints(block_text)
+        min_price_int = min(all_ints) if all_ints else None
+
+        if REQUIRE_PRICE and not price_raw and min_price_int is None:
             continue
 
-        # Store (Japanese "店")
+        # store
         store = ""
         m = re.search(r"(\S+店)", block_text)
         if m:
             store = clean_text(m.group(1))
 
-        # Enriched attributes
-        color = extract_color(chosen_title) or extract_color(block_text) or ""
         condition = extract_condition(block_text) or ""
-        stock = extract_stock_count(block_text)  # int or None
+        stock = extract_stock_count(block_text)
 
-        items[uid] = {
-            "id": uid,
+        items[itmcode] = {
+            "id": itmcode,
             "title": chosen_title,
-            "price": ascii_price(price_raw),
+            "price": ascii_price(price_raw) if price_raw else (f"{min_price_int:,} JPY" if min_price_int else ""),
+            "min_price_int": min_price_int if min_price_int is not None else price_to_int(price_raw),
             "store": store,
             "href": full,
-            "color": color,
             "condition": condition,
             "stock": stock if stock is not None else 0,
         }
 
     return list(items.values())
 
-# --- URL query manipulation & pagination ---
+# --- URL & pagination ---
 def _with_params(url: str, **extra):
     parts = urlparse(url)
     q = parse_qsl(parts.query, keep_blank_values=True)
@@ -385,12 +389,6 @@ def _with_params(url: str, **extra):
     return urlunparse(parts._replace(query=new_query))
 
 def build_page_url(feed: dict, page: int) -> str:
-    """
-    Brand-specific pagination + enforce newest-first:
-      - Xiaomi/Google: page 1 includes cache_key & PAGE=1
-      - OnePlus: page 1 keeps base; add cache_key & PAGE for page>=2
-      - Always inject ORDER=4
-    """
     base_url = feed["url"]
     pg = feed.get("pagination", {})
     page_param = pg.get("param", "PAGE")
@@ -402,7 +400,6 @@ def build_page_url(feed: dict, page: int) -> str:
             return _with_params(base_url, **{page_param: "1", "cache_key": cache_key_val, "ORDER": SORT_ORDER})
         else:
             return _with_params(base_url, ORDER=SORT_ORDER)
-
     return _with_params(base_url, **{page_param: str(page), "cache_key": cache_key_val, "ORDER": SORT_ORDER})
 
 def fetch_feed_all_pages(feed: dict, max_pages: int = MAX_PAGES, stop_on_empty: bool = True):
@@ -419,86 +416,102 @@ def fetch_feed_all_pages(feed: dict, max_pages: int = MAX_PAGES, stop_on_empty: 
         if not page_items and stop_on_empty:
             break
         all_items.extend(page_items)
-        # polite delay (with jitter)
         time.sleep(max(0.5, REQUEST_DELAY_SEC * random.uniform(1 - JITTER_RATIO, 1 + JITTER_RATIO)))
     return all_items
 
 def fetch_all_pages_for_url(url: str, pagination: dict | None, max_pages: int) -> list:
-    """Page through a single URL using the same pagination rules as the parent feed."""
     dummy_feed = {"url": url, "pagination": pagination or {}}
     return fetch_feed_all_pages(dummy_feed, max_pages=max_pages)
 
-def filter_items_by_brand(items, must_include=None, must_not_include=None):
-    mi = [m.lower() for m in (must_include or [])]
-    mn = [m.lower() for m in (must_not_include or [])]
-    filtered = []
+def filter_items_by_brand(items, must_include=None):
+    """For Xiaomi/Google: feed URL already filters → return as-is. For OnePlus: enforce keywords."""
+    if not must_include:
+        return items
+    mi = [m.lower() for m in must_include]
+    out = []
     for it in items:
-        title = (it.get("title", "") or "").lower()
-        if mi and not any(w in title for w in mi):
-            continue
-        if mn and any(w in title for w in mn):
-            continue
-        filtered.append(it)
-    return filtered
+        title = (it.get("title") or "").lower()
+        if any(w in title for w in mi):
+            out.append(it)
+    return out
 
-# --- Dedup key: URL + price + stock ---
-def build_item_key(item: dict) -> str:
-    price_i = price_to_int(item.get("price"))
-    stock = item.get("stock") or 0
-    return f"{item.get('href','')}|p{price_i}|q{stock}"
+# --- Diff: new ITMCODEs + price drops (per-ITMCODE min price) ---
+def diff_new_and_drops(feed_name: str, current_items: list, state: dict):
+    feed_state = state.get(feed_name) or {"seen_itmcodes": [], "last_min_price_by_code": {}}
+    seen_codes = set(str(x) for x in feed_state.get("seen_itmcodes", []))
+    last_min_map = {str(k): int(v) for k, v in (feed_state.get("last_min_price_by_code") or {}).items()
+                    if isinstance(v, (int, float, str)) and str(v).isdigit()}
 
-def diff_new_items(feed_name: str, current_items: list, state: dict):
-    """
-    New schema:
-      state[feed_name] = {"keys": ["<dedup_key>", ...]}
-    Old schemas auto-migrate to new dict + absolute URLs in load_state().
-    """
-    feed_state = state.get(feed_name)
-    if isinstance(feed_state, dict) and isinstance(feed_state.get("keys"), list):
-        seen_keys = set(feed_state["keys"])
-    elif isinstance(feed_state, list):
-        # very old: treat as seen keys directly
-        seen_keys = set(feed_state)
-    else:
-        seen_keys = set()
+    new_listings, price_drops = [], []
 
-    new_items = []
     for it in current_items:
-        key = build_item_key(it)
-        if key not in seen_keys:
-            new_items.append(it)
-            seen_keys.add(key)
+        code = str(it["id"])
+        cur_min = it.get("min_price_int") or price_to_int(it.get("price", "")) or 0
 
-    state[feed_name] = {"keys": sorted(seen_keys)}
-    return new_items, state
+        if code not in seen_codes:
+            new_listings.append(it)
+            seen_codes.add(code)
+        else:
+            prev = last_min_map.get(code)
+            if prev is not None and cur_min and cur_min < prev:
+                price_drops.append({**it, "previous_min": prev})
 
-def format_email_body(all_new):
+        if cur_min:
+            last_min_map[code] = cur_min
+
+    state[feed_name] = {
+        "seen_itmcodes": sorted(seen_codes),
+        "last_min_price_by_code": last_min_map,
+    }
+    return new_listings, price_drops, state
+
+def format_email_body(grouped):
+    """Price drops first (sorted asc), then new listings (sorted asc) within each feed."""
+    def as_price(i): return price_to_int(i.get("price", "")) or i.get("min_price_int") or 0
+
     lines = []
-    lines.append("New smartphone listings found on Janpara\n")
-    for feed_name, new_items in all_new:
-        if not new_items:
+    lines.append("Janpara smartphone alerts\n")
+
+    for feed_name, new_items, drop_items in grouped:
+        if not new_items and not drop_items:
             continue
-
-        # --- sort items by price ascending ---
-        def sort_key(it):
-            return price_to_int(it.get("price", "")) or 0
-
-        sorted_items = sorted(new_items, key=sort_key)
 
         lines.append(f"=== {feed_name} ===")
-        for it in sorted_items:
-            lines.append(f"- {it['title']}")
-            if it.get("price"):
-                lines.append(f"  Price: {it['price']}")
-            if it.get("color"):
-                lines.append(f"  Color: {it['color']}")
-            if it.get("stock") is not None:
-                lines.append(f"  Stock: {it['stock']}")
-            if it.get("store"):
-                lines.append(f"  Store: {it['store']}")
-            lines.append(f"  Link: {it['href']}")
-            lines.append("")
+
+        if drop_items:
+            lines.append("— Price drops —")
+            for it in sorted(drop_items, key=as_price):
+                prev = it.get("previous_min")
+                now = as_price(it)
+                delta = f"-{(prev - now):,} JPY" if (prev and now and prev > now) else ""
+                lines.append(f"- {it['title']}")
+                lines.append(f"  Now: {it['price']}  {delta}")
+                if it.get("condition"):
+                    lines.append(f"  Condition: {it['condition']}")
+                if it.get("stock") is not None:
+                    lines.append(f"  Stock: {it['stock']}")
+                if it.get("store"):
+                    lines.append(f"  Store: {it['store']}")
+                lines.append(f"  Link: {it['href']}")
+                lines.append("")
+
+        if new_items:
+            lines.append("— New listings —")
+            for it in sorted(new_items, key=as_price):
+                lines.append(f"- {it['title']}")
+                if it.get("price"):
+                    lines.append(f"  Price: {it['price']}")
+                if it.get("condition"):
+                    lines.append(f"  Condition: {it['condition']}")
+                if it.get("stock") is not None:
+                    lines.append(f"  Stock: {it['stock']}")
+                if it.get("store"):
+                    lines.append(f"  Store: {it['store']}")
+                lines.append(f"  Link: {it['href']}")
+                lines.append("")
+
         lines.append("")
+
     return "\n".join(lines).strip()
 
 def send_email(subject: str, body: str):
@@ -511,7 +524,7 @@ def send_email(subject: str, body: str):
     if not (smtp_host and smtp_user and smtp_pass and to_emails):
         raise RuntimeError("SMTP or recipient configuration missing. Check your .env file.")
     msg = MIMEText(body, _charset="utf-8")
-    msg["Subject"] = "[Janpara] New smartphone listings"
+    msg["Subject"] = "[Janpara] New listings & price drops"
     msg["From"] = from_email
     msg["To"] = ", ".join(to_emails)
     msg["Date"] = formatdate(localtime=True)
@@ -524,7 +537,7 @@ def send_email(subject: str, body: str):
 def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     state = load_state()
-    all_new = []
+    grouped = []
     any_success = False
 
     for feed in FEEDS:
@@ -532,7 +545,7 @@ def main():
         logging.info("Fetching: %s", name)
         items = []
 
-        # 1) Base URL (paginate if configured)
+        # Base
         try:
             if feed.get("paginate", False):
                 items.extend(fetch_feed_all_pages(feed, max_pages=MAX_PAGES))
@@ -542,7 +555,7 @@ def main():
         except Exception as e:
             logging.warning("%s: base URL failed (%s). Will try variants if any.", name, e)
 
-        # 2) Variants (e.g., OnePlus 'Nord', 'ワンプラス')
+        # Variants (OnePlus only)
         for vurl in feed.get("variants", []):
             try:
                 logging.info("%s: fetching variant %s", name, vurl)
@@ -554,46 +567,40 @@ def main():
             except Exception as e:
                 logging.warning("%s: variant failed (%s): %s", name, vurl, e)
 
-        # Deduplicate by absolute href/ID (before brand filter)
+        # Dedup by ITMCODE (keep first)
         dedup, seen = [], set()
         for it in items:
-            if it["id"] in seen:
+            code = str(it["id"])
+            if code in seen:
                 continue
-            seen.add(it["id"])
+            seen.add(code)
             dedup.append(it)
         items = dedup
 
-        # Brand filter (relax for OnePlus if empty but items exist)
-        filtered = filter_items_by_brand(items, feed.get("must_include"), feed.get("must_not_include"))
-        if not filtered and "OnePlus" in name and items:
-            logging.warning("OnePlus: 0 after brand filter; relaxing filter for visibility this run.")
-            filtered = items
+        # Brand filter (none for Xiaomi/Google; only for OnePlus)
+        filtered = filter_items_by_brand(items, feed.get("must_include"))
 
-        logging.info("%s: %d items after brand filter", name, len(filtered))
+        logging.info("%s: %d items after filter", name, len(filtered))
 
-        # (Optional) peek at dedup keys
-        if filtered[:3]:
-            sample_keys = [build_item_key(it) for it in filtered[:3]]
-            logging.debug("%s: sample dedup keys: %s", name, sample_keys)
+        new_items, drop_items, state = diff_new_and_drops(name, filtered, state)
+        logging.info("%s: new %d | drops %d", name, len(new_items), len(drop_items))
 
-        new_items, state = diff_new_items(name, filtered, state)
-        logging.info("%s: new %d", name, len(new_items))
-        if new_items:
-            all_new.append((name, new_items))
+        if new_items or drop_items:
+            grouped.append((name, new_items, drop_items))
 
         time.sleep(max(0.5, REQUEST_DELAY_SEC * random.uniform(1 - JITTER_RATIO, 1 + JITTER_RATIO)))
 
-    if all_new:
-        body = format_email_body(all_new)
-        send_email("[Janpara] New smartphone listings", body)
-        logging.info("Email sent with %d feed groups", len(all_new))
+    if grouped:
+        body = format_email_body(grouped)
+        send_email("[Janpara] New listings & price drops", body)
+        logging.info("Email sent for %d feed groups", len(grouped))
     else:
         if not any_success:
             logging.warning("Run degraded: all feeds failed or returned busy pages.")
-            # Optional: notify on full failure
+            # Optional: send a degraded-run email
             # send_email("[Janpara] Alert run degraded", "Janpara returned busy pages (503). No new items this run.")
         else:
-            logging.info("No new items")
+            logging.info("No new items or price drops")
 
     save_state(state)
 
