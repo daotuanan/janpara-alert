@@ -408,10 +408,20 @@ def build_page_url(feed: dict, page: int) -> str:
 
     if page == 1:
         if require_page1:
-            return _with_params(base_url, **{page_param: "1", "cache_key": cache_key_val, "ORDER": SORT_ORDER})
+            return _with_params(base_url,
+                                **{page_param: "1",
+                                "cache_key": cache_key_val,
+                                "ORDER": SORT_ORDER,
+                                "LINE": "24"})
         else:
-            return _with_params(base_url, ORDER=SORT_ORDER)
-    return _with_params(base_url, **{page_param: str(page), "cache_key": cache_key_val, "ORDER": SORT_ORDER})
+            return _with_params(base_url,
+                                ORDER=SORT_ORDER,
+                                LINE="24")
+    return _with_params(base_url,
+                            **{page_param: str(page),
+                            "cache_key": cache_key_val,
+                            "ORDER": SORT_ORDER,
+                            "LINE": "24"})
 
 def fetch_feed_all_pages(feed: dict, max_pages: int = MAX_PAGES, stop_on_empty: bool = True):
     all_items = []
