@@ -637,6 +637,7 @@
       "373064",
       "373065",
       "373116",
+      "375070",
       "https://www.janpara.co.jp/sale/search/detail/?ITMCODE=296837&OUTCLSCODE=46&ORDER=4|p19980|q1",
       "https://www.janpara.co.jp/sale/search/detail/?ITMCODE=315171&OUTCLSCODE=46&ORDER=4|p17980|q26",
       "https://www.janpara.co.jp/sale/search/detail/?ITMCODE=315174&OUTCLSCODE=46&ORDER=4|p22980|q9",
@@ -743,7 +744,7 @@
       "342421": 44980,
       "315174": 15980,
       "349148": 44980,
-      "346525": 49980,
+      "346525": 53980,
       "296837": 19980,
       "335764": 28990,
       "351815": 42990,
@@ -895,7 +896,8 @@
       "352797": 79980,
       "336205": 88980,
       "352752": 101980,
-      "352789": 113980
+      "352789": 113980,
+      "375070": 149980
     }
   },
   "OnePlus Smartphones": {
