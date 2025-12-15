@@ -208,6 +208,7 @@
       "362798",
       "362799",
       "362806",
+      "362807",
       "362808",
       "363005",
       "363006",
@@ -232,6 +233,7 @@
       "375987",
       "375988",
       "378027",
+      "378050",
       "https://www.janpara.co.jp/sale/search/detail/?ITMCODE=267468&OUTCLSCODE=46&ORDER=4|p12980|q5",
       "https://www.janpara.co.jp/sale/search/detail/?ITMCODE=267469&OUTCLSCODE=46&ORDER=4|p10980|q4",
       "https://www.janpara.co.jp/sale/search/detail/?ITMCODE=281886&OUTCLSCODE=46&ORDER=4|p10980|q9",
@@ -556,7 +558,9 @@
       "325843": 35980,
       "362806": 54980,
       "309877": 21980,
-      "362808": 64980
+      "362808": 64980,
+      "362807": 58980,
+      "378050": 52980
     }
   },
   "Google Smartphones": {
