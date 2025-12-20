@@ -98,6 +98,27 @@ FEEDS = [
         "paginate": True,
         "pagination": {"param": "PAGE", "cache_key": "/sale/search/result/", "require_page1": False},
     },
+    # iPad (Apple tablets)
+    {
+        "name": "Apple iPad",
+        "url": f"https://www.janpara.co.jp/sale/search/result/?OUTCLSCODE=79&CHKOUTCOM=1"
+               f"&PRBFLTWORD01_FILTER[]=2"
+               f"&PRBFLTWORD01_FILTER[]=3"
+               f"&PRBFLTWORD01_FILTER[]=4"
+               f"&PRBFLTWORD01_FILTER[]=5"
+               f"&PRBFLTWORD01_FILTER[]=6"
+               f"&PRBFLTWORD01_FILTER[]=7"
+               f"&PRBFLT642_FILTER[]=0"
+               f"&PRBFLT642_FILTER[]=1"
+               f"&ORDER={SORT_ORDER}&PAGE=1",
+        "paginate": True,
+        "pagination": {
+            "param": "PAGE",
+            "cache_key": "/sale/search/result/",
+            "require_page1": True
+        },
+        # URL already restricts to iPad → no must_include needed
+    },
 ]
 
 # Busy-page detection
@@ -318,7 +339,8 @@ def parse_listing_cards(soup: BeautifulSoup):
         "Xiaomi", "Redmi", "Mi ",
         "Google", "Pixel",
         "OnePlus", "Nord", "ワンプラス",
-        "LG"
+        "LG",
+        "iPad", "Apple",
     ]
 
     for a in soup.find_all("a", href=True):
