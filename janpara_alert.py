@@ -78,6 +78,14 @@ FEEDS = [
         "pagination": {"param": "PAGE", "cache_key": "/sale/search/result/", "require_page1": True},
         # URL already brand-filters; no must_include
     },
+    # LG: PRBFLTWORD01_FILTER[]=12
+    {
+        "name": "LG Smartphones",
+        "url": f"https://www.janpara.co.jp/sale/search/result/?SSHPCODE=&OUTCLSCODE=46&KEYWORDS=&CHKOUTCOM=1&PRBFLTWORD01_FILTER[]=12&ORDER={SORT_ORDER}&PAGE=1",
+        "paginate": True,
+        "pagination": {"param": "PAGE", "cache_key": "/sale/search/result/", "require_page1": True},
+        # URL already brand-filters; no must_include
+    },
     # OnePlus: keyword search (plus variants)
     {
         "name": "OnePlus Smartphones",
@@ -309,7 +317,8 @@ def parse_listing_cards(soup: BeautifulSoup):
     brand_keywords = [
         "Xiaomi", "Redmi", "Mi ",
         "Google", "Pixel",
-        "OnePlus", "Nord", "ワンプラス"
+        "OnePlus", "Nord", "ワンプラス",
+        "LG"
     ]
 
     for a in soup.find_all("a", href=True):
