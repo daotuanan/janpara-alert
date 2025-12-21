@@ -57,46 +57,16 @@ HEADERS = {
     "Referer": "https://www.janpara.co.jp/",
 }
 
-STATE_FILE = (HERE / "state" / "janpara_seen.json")
+STATE_FILE = (HERE / "state" / "janpara_ipad_seen.json")
 STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
 
 # Feeds
 FEEDS = [
-    # Xiaomi: PRBFLTWORD01_FILTER=5
     {
-        "name": "Xiaomi Smartphones",
-        "url": f"https://www.janpara.co.jp/sale/search/result/?OUTCLSCODE=46&PRBFLTWORD01_FILTER%5B0%5D=5&ORDER={SORT_ORDER}&PAGE=1",
+        "name": "Apple iPad",
+        "url": "https://www.janpara.co.jp/sale/search/result/?KEYWORDS=&OUTCLSCODE=79&SSHPCODE=&MINPRICE=&MAXPRICE=&ORDER=3&CHKOUTCOM=1&PRBFLTWORD01_FILTER%5B%5D=2&PRBFLTWORD01_FILTER%5B%5D=3&PRBFLTWORD01_FILTER%5B%5D=4&PRBFLTWORD01_FILTER%5B%5D=5&PRBFLTWORD01_FILTER%5B%5D=6&PRBFLTWORD01_FILTER%5B%5D=7&PRBFLTWORD01_FILTER%5B%5D=2&PRBFLTWORD01_FILTER%5B%5D=3&PRBFLTWORD01_FILTER%5B%5D=4&PRBFLTWORD01_FILTER%5B%5D=5&PRBFLTWORD01_FILTER%5B%5D=6&PRBFLTWORD01_FILTER%5B%5D=7&PRBFLT642_FILTER%5B%5D=0&PRBFLT642_FILTER%5B%5D=1&LINE=24",
         "paginate": True,
         "pagination": {"param": "PAGE", "cache_key": "/sale/search/result/", "require_page1": True},
-        # URL already brand-filters; no must_include
-    },
-    # Google: PRBFLTWORD01_FILTER=0
-    {
-        "name": "Google Smartphones",
-        "url": f"https://www.janpara.co.jp/sale/search/result/?OUTCLSCODE=46&PRBFLTWORD01_FILTER%5B0%5D=0&ORDER={SORT_ORDER}&PAGE=1",
-        "paginate": True,
-        "pagination": {"param": "PAGE", "cache_key": "/sale/search/result/", "require_page1": True},
-        # URL already brand-filters; no must_include
-    },
-    # LG: PRBFLTWORD01_FILTER[]=12
-    {
-        "name": "LG Smartphones",
-        "url": f"https://www.janpara.co.jp/sale/search/result/?SSHPCODE=&OUTCLSCODE=46&KEYWORDS=&CHKOUTCOM=1&PRBFLTWORD01_FILTER[]=12&ORDER={SORT_ORDER}&PAGE=1",
-        "paginate": True,
-        "pagination": {"param": "PAGE", "cache_key": "/sale/search/result/", "require_page1": True},
-        # URL already brand-filters; no must_include
-    },
-    # OnePlus: keyword search (plus variants)
-    {
-        "name": "OnePlus Smartphones",
-        "url": f"https://www.janpara.co.jp/sale/search/result/?SSHPCODE=&OUTCLSCODE=46&KEYWORDS=oneplus&CHKOUTCOM=1&ORDER={SORT_ORDER}",
-        "variants": [
-            f"https://www.janpara.co.jp/sale/search/result/?SSHPCODE=&OUTCLSCODE=46&KEYWORDS=Nord&CHKOUTCOM=1&ORDER={SORT_ORDER}",
-            f"https://www.janpara.co.jp/sale/search/result/?SSHPCODE=&OUTCLSCODE=46&KEYWORDS=%E3%83%AF%E3%83%B3%E3%83%97%E3%83%A9%E3%82%B9&CHKOUTCOM=1&ORDER={SORT_ORDER}",  # ワンプラス
-        ],
-        "must_include": ["oneplus", "nord", "ワンプラス"],  # safety for keyword matches
-        "paginate": True,
-        "pagination": {"param": "PAGE", "cache_key": "/sale/search/result/", "require_page1": False},
     },
 ]
 
@@ -315,10 +285,7 @@ def parse_listing_cards(soup: BeautifulSoup):
 
     # Only the brands we care about (used for picking a good title string)
     brand_keywords = [
-        "Xiaomi", "Redmi", "Mi ",
-        "Google", "Pixel",
-        "OnePlus", "Nord", "ワンプラス",
-        "LG",
+        "iPad", "Apple",
     ]
 
     for a in soup.find_all("a", href=True):
@@ -554,7 +521,7 @@ def send_email(subject: str, body: str):
     if not (smtp_host and smtp_user and smtp_pass and to_emails):
         raise RuntimeError("SMTP or recipient configuration missing. Check your .env file.")
     msg = MIMEText(body, _charset="utf-8")
-    msg["Subject"] = "[Janpara] New listings & price drops"
+    msg["Subject"] = "[Janpara] iPad alerts"
     msg["From"] = from_email
     msg["To"] = ", ".join(to_emails)
     msg["Date"] = formatdate(localtime=True)
@@ -610,7 +577,7 @@ def main():
             dedup.append(it)
         items = dedup
 
-        # Brand filter (none for Xiaomi/Google; only for OnePlus)
+        # Brand filter (none needed for iPad URL)
         filtered = filter_items_by_brand(items, feed.get("must_include"))
 
         logging.info("%s: %d items after filter", name, len(filtered))
@@ -625,7 +592,7 @@ def main():
 
     if grouped:
         body = format_email_body(grouped)
-        send_email("[Janpara] New listings & price drops", body)
+        send_email("[Janpara] iPad alerts", body)
         logging.info("Email sent for %d feed groups", len(grouped))
     else:
         if not any_success:

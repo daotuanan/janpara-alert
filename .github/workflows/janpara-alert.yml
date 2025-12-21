@@ -37,7 +37,7 @@ jobs:
           # sleep 0–240s randomly (up to 4 minutes)
           S=$((RANDOM % 241)); echo "Sleeping ${S}s..."; sleep $S
 
-      - name: Run alert script
+      - name: Run alert scripts
         env:
           SMTP_HOST: ${{ secrets.SMTP_HOST }}
           SMTP_PORT: ${{ secrets.SMTP_PORT }}
@@ -48,13 +48,15 @@ jobs:
         run: |
           mkdir -p state
           python -u janpara_alert.py
+          python -u janpara_macbook_watcher.py
+          python -u janpara_ipad_alert.py
 
       - name: Commit updated state (if changed)
         run: |
-          if [ -n "$(git status --porcelain state/janpara_seen.json 2>/dev/null)" ]; then
+          if [ -n "$(git status --porcelain state/janpara_seen.json state/janpara_macbook_seen.json state/janpara_ipad_seen.json 2>/dev/null)" ]; then
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add state/janpara_seen.json
+            git add state/janpara_seen.json state/janpara_macbook_seen.json state/janpara_ipad_seen.json
             git commit -m "Update janpara state [skip ci]" || true
             git push
           else
