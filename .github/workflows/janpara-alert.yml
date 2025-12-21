@@ -48,7 +48,11 @@ jobs:
         run: |
           mkdir -p state
           python -u janpara_alert.py
+          # Space out calls to avoid overloading Janpara.
+          sleep 1200
           python -u janpara_macbook_watcher.py
+          # Space out calls to avoid overloading Janpara.
+          sleep 1200
           python -u janpara_ipad_alert.py
 
       - name: Commit updated state (if changed)
