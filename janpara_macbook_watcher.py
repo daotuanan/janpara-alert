@@ -678,11 +678,14 @@ def main():
 
     if busy_stop:
         note = "Busy response encountered; sending partial results from this run."
-        _, _, state = diff_new_and_drops(filtered, state)
+        new_items, drop_items, state = diff_new_and_drops(filtered, state)
         save_state(state)
-        body = format_email_body(filtered, [], note=note)
-        send_email("[Janpara] MacBook alerts (partial: busy response)", body)
-        logging.info("Email sent (partial).")
+        if new_items or drop_items:
+            body = format_email_body(new_items, drop_items, note=note)
+            send_email("[Janpara] MacBook alerts (partial: busy response)", body)
+            logging.info("Email sent (partial).")
+        else:
+            logging.info("No new items or price drops in partial run.")
         return
 
     new_items, drop_items, state = diff_new_and_drops(filtered, state)
