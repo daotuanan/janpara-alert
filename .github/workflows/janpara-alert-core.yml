@@ -2,8 +2,8 @@ name: Janpara Alert (Core)
 
 on:
   schedule:
-    # Runs every hour at :07 (UTC). Since it's hourly, the hour offset vs JST doesn't matter.
-    - cron: "7 * * * *"
+    # Runs every 2 hours at :07 (UTC).
+    - cron: "7 */2 * * *"
   workflow_dispatch: {}
 
 permissions:

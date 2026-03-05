@@ -2,8 +2,8 @@ name: Janpara Alert (iPad)
 
 on:
   schedule:
-    # Runs every hour at :27 (UTC). Since it's hourly, the hour offset vs JST doesn't matter.
-    - cron: "27 * * * *"
+    # Runs every 2 hours at :27 (UTC).
+    - cron: "27 */2 * * *"
   workflow_dispatch: {}
 
 permissions:
