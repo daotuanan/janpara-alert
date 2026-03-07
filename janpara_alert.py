@@ -58,6 +58,8 @@ HEADERS = {
 }
 
 STATE_FILE = (HERE / "state" / "janpara_seen.json")
+HEARTBEAT_FILE = (HERE / "state" / "janpara_seen_heartbeat.txt")
+HEARTBEAT_INTERVAL_HOURS = int(os.getenv("HEARTBEAT_INTERVAL_HOURS", "24"))
 STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
 
 # Feeds
@@ -561,6 +563,28 @@ def send_email(subject: str, body: str):
     with smtplib.SMTP(smtp_host, smtp_port, timeout=30) as s:
         s.ehlo(); s.starttls(); s.login(smtp_user, smtp_pass); s.sendmail(from_email, to_emails, msg.as_string())
 
+def mark_heartbeat_now():
+    try:
+        HEARTBEAT_FILE.write_text(str(int(time.time())), encoding="utf-8")
+    except Exception as e:
+        logging.warning("Failed to update heartbeat file: %s", e)
+
+def maybe_send_heartbeat(subject: str, body: str):
+    if HEARTBEAT_INTERVAL_HOURS <= 0:
+        return
+    now = int(time.time())
+    interval_sec = HEARTBEAT_INTERVAL_HOURS * 3600
+    last_sent = 0
+    try:
+        last_sent = int((HEARTBEAT_FILE.read_text(encoding="utf-8") or "0").strip())
+    except Exception:
+        last_sent = 0
+    if now - last_sent < interval_sec:
+        return
+    send_email(subject, body)
+    mark_heartbeat_now()
+    logging.info("Heartbeat email sent.")
+
 # =========================
 # MAIN
 # =========================
@@ -626,14 +650,21 @@ def main():
     if grouped:
         body = format_email_body(grouped)
         send_email("[Janpara] New listings & price drops", body)
+        mark_heartbeat_now()
         logging.info("Email sent for %d feed groups", len(grouped))
     else:
         if not any_success:
             logging.warning("Run degraded: all feeds failed or returned busy pages.")
-            # Optional: send a degraded-run email
-            # send_email("[Janpara] Alert run degraded", "Janpara returned busy pages (503). No new items this run.")
+            maybe_send_heartbeat(
+                "[Janpara] Core heartbeat (degraded run)",
+                "Janpara core watcher completed with degraded status: all feeds failed or returned busy pages.",
+            )
         else:
             logging.info("No new items or price drops")
+            maybe_send_heartbeat(
+                "[Janpara] Core heartbeat (no changes)",
+                "Janpara core watcher is healthy. No new items or price drops in recent runs.",
+            )
 
     save_state(state)
 

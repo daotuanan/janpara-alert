@@ -74,6 +74,8 @@ class BusyResponseError(Exception):
 
 # State file
 STATE_FILE = (HERE / "state" / "janpara_macbook_seen.json")
+HEARTBEAT_FILE = (HERE / "state" / "janpara_macbook_heartbeat.txt")
+HEARTBEAT_INTERVAL_HOURS = int(os.getenv("HEARTBEAT_INTERVAL_HOURS", "24"))
 STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
 
 # Feed base URL (your link, but we let build_page_url inject ORDER/PAGE/LINE/cache_key)
@@ -595,11 +597,32 @@ def send_email(subject: str, body: str):
         s.login(smtp_user, smtp_pass)
         s.sendmail(from_email, to_emails, msg.as_string())
 
+def mark_heartbeat_now():
+    try:
+        HEARTBEAT_FILE.write_text(str(int(time.time())), encoding="utf-8")
+    except Exception as e:
+        logging.warning("Failed to update heartbeat file: %s", e)
+
+def maybe_send_heartbeat(subject: str, body: str):
+    if HEARTBEAT_INTERVAL_HOURS <= 0:
+        return
+    now = int(time.time())
+    interval_sec = HEARTBEAT_INTERVAL_HOURS * 3600
+    last_sent = 0
+    try:
+        last_sent = int((HEARTBEAT_FILE.read_text(encoding="utf-8") or "0").strip())
+    except Exception:
+        last_sent = 0
+    if now - last_sent < interval_sec:
+        return
+    send_email(subject, body)
+    mark_heartbeat_now()
+    logging.info("Heartbeat email sent.")
+
 # =========================
 # MAIN
 # =========================
 def main():
-    print("DEBUG: janpara_macbook_watcher starting")
     log_level = os.getenv("LOG_LEVEL", "INFO").upper()
     logging.basicConfig(
         level=getattr(logging, log_level, logging.INFO),
@@ -617,9 +640,6 @@ def main():
         logging.warning("Busy response while fetching listings; sending partial results.")
         items = e.items
         busy_stop = True
-
-    for idx, it in enumerate(items, 1):
-        print(f"DEBUG ITEM {idx}: {it}")
 
     # Dedup by ITMCODE (keep first)
     dedup = []
@@ -683,9 +703,14 @@ def main():
         if new_items or drop_items:
             body = format_email_body(new_items, drop_items, note=note)
             send_email("[Janpara] MacBook alerts (partial: busy response)", body)
+            mark_heartbeat_now()
             logging.info("Email sent (partial).")
         else:
             logging.info("No new items or price drops in partial run.")
+            maybe_send_heartbeat(
+                "[Janpara] MacBook heartbeat (degraded run)",
+                "Janpara MacBook watcher completed with degraded status: busy response encountered and no alertable changes found.",
+            )
         return
 
     new_items, drop_items, state = diff_new_and_drops(filtered, state)
@@ -695,9 +720,14 @@ def main():
     if new_items or drop_items:
         body = format_email_body(new_items, drop_items)
         send_email("[Janpara] MacBook alerts (M-series + 32GB+)", body)
+        mark_heartbeat_now()
         logging.info("Email sent.")
     else:
         logging.info("No alerts.")
+        maybe_send_heartbeat(
+            "[Janpara] MacBook heartbeat (no changes)",
+            "Janpara MacBook watcher is healthy. No new items or price drops in recent runs.",
+        )
 
     save_state(state)
 
