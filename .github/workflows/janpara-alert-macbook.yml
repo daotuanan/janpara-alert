@@ -2,8 +2,8 @@ name: Janpara Alert (MacBook)
 
 on:
   schedule:
-    # Runs every hour at :37 (UTC). Since it's hourly, the hour offset vs JST doesn't matter.
-    - cron: "37 * * * *"
+    # Runs every 2 hours at :43 (UTC) to reduce pressure on Janpara.
+    - cron: "43 */2 * * *"
   workflow_dispatch: {}
 
 permissions:

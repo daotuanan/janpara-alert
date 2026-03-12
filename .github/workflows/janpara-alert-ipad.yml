@@ -2,8 +2,8 @@ name: Janpara Alert (iPad)
 
 on:
   schedule:
-    # Runs every 2 hours at :27 (UTC).
-    - cron: "27 */2 * * *"
+    # Runs every 4 hours at :29 (UTC) to reduce pressure on Janpara.
+    - cron: "29 */4 * * *"
   workflow_dispatch: {}
 
 permissions:

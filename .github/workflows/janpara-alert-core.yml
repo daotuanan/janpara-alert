@@ -2,8 +2,8 @@ name: Janpara Alert (Core)
 
 on:
   schedule:
-    # Runs every 2 hours at :07 (UTC).
-    - cron: "7 */2 * * *"
+    # Runs every 4 hours at :11 (UTC) to reduce pressure on Janpara.
+    - cron: "11 */4 * * *"
   workflow_dispatch: {}
 
 permissions:

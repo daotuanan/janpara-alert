@@ -77,7 +77,6 @@ BUSY_PHRASES = [
     "アクセス集中により大変混み合っております。",
     "しばらく時間をおいてから再度お越し下さい",
     "Service Temporarily Unavailable",
-    "503",
 ]
 
 # =========================
@@ -239,11 +238,14 @@ def _sleep_with_jitter(base: float, attempt: int):
 def is_busy_response(resp: requests.Response) -> bool:
     if resp.status_code in RETRY_STATUS:
         return True
+    content_type = (resp.headers.get("Content-Type") or "").lower()
+    if content_type and "html" not in content_type and "text" not in content_type:
+        return False
     try:
-        text = resp.text[:2000]
+        text = clean_text(resp.text[:4000]).lower()
     except Exception:
         return False
-    return any(p in text for p in BUSY_PHRASES)
+    return any(p.lower() in text for p in BUSY_PHRASES)
 
 def request_get_with_retries(url: str, headers: dict, timeout: int) -> requests.Response:
     last_exc = None

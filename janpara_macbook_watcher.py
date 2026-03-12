@@ -62,7 +62,6 @@ BUSY_PHRASES = [
     "アクセス集中により大変混み合っております。",
     "しばらく時間をおいてから再度お越し下さい",
     "Service Temporarily Unavailable",
-    "503",
 ]
 BUSY_RETRY_AFTER_CAP_SEC = 30
 
@@ -243,20 +242,31 @@ def _sleep_with_jitter(base: float, attempt: int):
 def is_busy_response(resp: requests.Response) -> bool:
     if resp.status_code in RETRY_STATUS:
         return True
+    content_type = (resp.headers.get("Content-Type") or "").lower()
+    if content_type and "html" not in content_type and "text" not in content_type:
+        return False
     try:
-        text = resp.text[:2000]
+        text = clean_text(resp.text[:4000]).lower()
     except Exception:
         return False
-    return any(p in text for p in BUSY_PHRASES)
+    return any(p.lower() in text for p in BUSY_PHRASES)
 
 def request_get_with_retries(url: str) -> requests.Response:
     last_exc = None
     for attempt in range(1, MAX_RETRIES + 1):
         try:
             r = requests.get(url, headers=HEADERS, timeout=HTTP_TIMEOUT_SEC)
-            busy = is_busy_response(r)
-            if busy:
-                raise BusyResponseError("Busy response: site overloaded")
+            if is_busy_response(r):
+                ra = r.headers.get("Retry-After")
+                if ra:
+                    try:
+                        time.sleep(min(int(ra), BUSY_RETRY_AFTER_CAP_SEC))
+                    except Exception:
+                        _sleep_with_jitter(BACKOFF_BASE, attempt)
+                else:
+                    _sleep_with_jitter(BACKOFF_BASE, attempt)
+                last_exc = BusyResponseError("Busy response: site overloaded")
+                continue
             if r.status_code in RETRY_STATUS:
                 ra = r.headers.get("Retry-After")
                 if ra:
