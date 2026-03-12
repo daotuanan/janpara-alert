@@ -48,14 +48,28 @@ JITTER_RATIO = 0.20
 RETRY_STATUS = {429, 500, 502, 503, 504}
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) JanparaWatcher/2.6",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/134.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
     "Accept-Language": "ja,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
     "Cache-Control": "no-cache",
     "Pragma": "no-cache",
     "Connection": "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "same-origin",
+    "Sec-Fetch-User": "?1",
     "Referer": "https://www.janpara.co.jp/",
 }
+
+SESSION = requests.Session()
+SESSION.headers.update(HEADERS)
+SESSION_PRIMED = False
 
 STATE_FILE = (HERE / "state" / "janpara_seen.json")
 HEARTBEAT_FILE = (HERE / "state" / "janpara_seen_heartbeat.txt")
@@ -277,11 +291,41 @@ def is_busy_response(resp: requests.Response) -> bool:
         return False
     return any(p.lower() in text for p in BUSY_PHRASES)
 
+def log_response_debug(resp: requests.Response, prefix: str):
+    try:
+        snippet = clean_text(resp.text[:500])
+    except Exception:
+        snippet = ""
+    if snippet:
+        logging.warning("%s: status=%s content_type=%s body=%s", prefix, resp.status_code, resp.headers.get("Content-Type", ""), snippet)
+    else:
+        logging.warning("%s: status=%s content_type=%s", prefix, resp.status_code, resp.headers.get("Content-Type", ""))
+
+def prime_session(force: bool = False):
+    global SESSION_PRIMED
+    if SESSION_PRIMED and not force:
+        return
+    try:
+        SESSION.get(BASE_URL + "/", timeout=HTTP_TIMEOUT_SEC)
+        SESSION_PRIMED = True
+    except Exception as e:
+        logging.debug("Session prime failed: %s", e)
+
 def request_get_with_retries(url: str, headers: dict, timeout: int) -> requests.Response:
     last_exc = None
     for attempt in range(1, MAX_RETRIES + 1):
         try:
-            r = requests.get(url, headers=headers, timeout=timeout)
+            if attempt == 1:
+                prime_session()
+            r = SESSION.get(url, headers=headers, timeout=timeout)
+            if r.status_code == 403:
+                log_response_debug(r, f"403 on attempt {attempt} for {url}")
+                prime_session(force=True)
+                last_exc = requests.HTTPError(f"{r.status_code} {r.reason}")
+                if attempt >= MAX_RETRIES:
+                    break
+                _sleep_with_jitter(BACKOFF_BASE, attempt)
+                continue
             if r.status_code in RETRY_STATUS or is_busy_response(r):
                 ra = r.headers.get("Retry-After")
                 if ra:
