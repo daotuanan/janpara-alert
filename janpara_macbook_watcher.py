@@ -199,11 +199,14 @@ def extract_stock_count(text: str) -> int | None:
 APPLE_SILICON_RE = re.compile(r"\b(?:Apple\s*)?M(\d)\b", re.IGNORECASE)
 APPLE_SILICON_VARIANT_RE = re.compile(r"\bM(\d)\s*(Pro|Max|Ultra)\b", re.IGNORECASE)
 
+RAM_CONTEXT_RE = re.compile(r"(?:ram|memory|メモリ|メモリー|メモリー容量|記憶装置|memory\s+size)", re.IGNORECASE)
 RAM_PATTERNS = [
-    re.compile(r"/\s*(\d{1,3})\s*G\s*/", re.IGNORECASE),   # /32G/
-    re.compile(r"\b(\d{1,3})\s*G\b", re.IGNORECASE),       # 32G
-    re.compile(r"\b(\d{1,3})\s*GB\b", re.IGNORECASE),      # 32GB
-    re.compile(r"メモリ\s*[:：]?\s*(\d{1,3})\s*G[B]?", re.IGNORECASE),
+    (re.compile(r"メモリ\s*[:：]?\s*(\d{1,3})\s*G[B]?", re.IGNORECASE), False),
+    (re.compile(r"\bRAM\s*[:：]?\s*(\d{1,3})\s*GB\b", re.IGNORECASE), False),
+    (re.compile(r"\b(\d{1,3})\s*GB\s+RAM\b", re.IGNORECASE), False),
+    (re.compile(r"/\s*(\d{1,3})\s*G\s*/", re.IGNORECASE), True),
+    (re.compile(r"\b(\d{1,3})\s*G\b", re.IGNORECASE), True),
+    (re.compile(r"\b(\d{1,3})\s*GB\b", re.IGNORECASE), True),
 ]
 
 def is_apple_silicon(text: str) -> bool:
@@ -225,13 +228,19 @@ def extract_cpu_label(text: str) -> str:
 def extract_ram_gb(text: str) -> int | None:
     if not text:
         return None
-    for rx in RAM_PATTERNS:
+    for rx, require_context in RAM_PATTERNS:
         m = rx.search(text)
-        if m:
-            try:
-                return int(m.group(1))
-            except Exception:
-                pass
+        if not m:
+            continue
+        if require_context:
+            span = m.span(1)
+            ctx = text[max(0, span[0] - 40): span[1] + 40]
+            if not RAM_CONTEXT_RE.search(ctx):
+                continue
+        try:
+            return int(m.group(1))
+        except Exception:
+            pass
     return None
 
 KBD_JP_RE = re.compile(r"(JIS|日本語|かな|JPN|JP配列)", re.IGNORECASE)
