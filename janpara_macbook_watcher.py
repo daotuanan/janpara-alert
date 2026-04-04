@@ -64,8 +64,8 @@ HEADERS = {
 }
 
 # MacBook filter requirements
-REQUIRE_APPLE_SILICON = True
-MIN_RAM_GB = 24
+REQUIRE_APPLE_SILICON = False
+MIN_RAM_GB = 16
 
 # Busy-page detection
 BUSY_PHRASES = [
@@ -94,8 +94,8 @@ STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
 
 # Feed base URL (your link, but we let build_page_url inject ORDER/PAGE/LINE/cache_key)
 MACBOOK_FEED = {
-    "name": "MacBook (M-series + RAM>=24GB)",
-    "url": "https://www.janpara.co.jp/sale/search/result/?KEYWORDS=&OUTCLSCODE=4&SSHPCODE=&MINPRICE=&MAXPRICE=&ORDER=3&CHKOUTCOM=1&PRBFLT363_FILTER%5B%5D=2&PRBFLT363_FILTER%5B%5D=3&PRBFLT355_FILTER%5B%5D=3&LINE=24",
+    "name": "MacBook (RAM>=16GB)",
+    "url": "https://www.janpara.co.jp/sale/search/result/?KEYWORDS=MacBook&OUTCLSCODE=4&SSHPCODE=&MINPRICE=&MAXPRICE=&ORDER=3&CHKOUTCOM=1&LINE=24",
     "paginate": True,
     "pagination": {"param": "PAGE", "cache_key": "/sale/search/result/", "require_page1": True},
 }
@@ -563,11 +563,7 @@ def diff_new_and_drops(current_items: list, state: dict):
 # FILTERS
 # =========================
 def passes_macbook_requirements(item: dict) -> bool:
-    cpu_text = f"{item.get('cpu','')} {item.get('title','')}"
     ram = int(item.get("ram_gb") or 0)
-
-    if REQUIRE_APPLE_SILICON and not is_apple_silicon(cpu_text):
-        return False
     if ram and ram < MIN_RAM_GB:
         return False
     # If RAM is unknown (0), we will try detail enrichment before rejecting.
@@ -617,7 +613,7 @@ def format_email_body(new_items: list, drop_items: list, note: str = "") -> str:
 
     lines = []
     lines.append("Janpara MacBook alerts")
-    lines.append(f"Filters: Apple Silicon M-series, RAM >= {MIN_RAM_GB}GB")
+    lines.append(f"Filters: RAM >= {MIN_RAM_GB}GB")
     if note:
         lines.append(note)
     lines.append("")
@@ -707,12 +703,9 @@ def main():
         dedup.append(it)
     items = dedup
 
-    # First pass: keep likely candidates (don’t reject RAM=0 yet)
+    # First pass: keep listings around until detail verification (don’t reject RAM=0 yet)
     candidates = []
     for it in items:
-        # Must be Apple Silicon (from listing), else skip early
-        if REQUIRE_APPLE_SILICON and not is_apple_silicon(f"{it.get('cpu','')} {it.get('title','')}"):
-            continue
         candidates.append(it)
 
     # Enrich from detail page so we can confirm RAM & keyboard layout
@@ -737,9 +730,6 @@ def main():
     # Apply final strict filters
     filtered = []
     for it in enriched:
-        # Confirm again with detail text results
-        if REQUIRE_APPLE_SILICON and not is_apple_silicon(f"{it.get('cpu','')} {it.get('title','')}"):
-            continue
         ram = int(it.get("ram_gb") or 0)
         if ram and ram < MIN_RAM_GB:
             continue
@@ -757,7 +747,7 @@ def main():
         save_state(state)
         if new_items or drop_items:
             body = format_email_body(new_items, drop_items, note=note)
-            send_email("[Janpara] MacBook alerts (partial: busy response)", body)
+            send_email("[Janpara] MacBook alerts (RAM>=16GB, partial run)", body)
             mark_heartbeat_now()
             logging.info("Email sent (partial).")
         else:
@@ -774,7 +764,7 @@ def main():
 
     if new_items or drop_items:
         body = format_email_body(new_items, drop_items)
-        send_email("[Janpara] MacBook alerts (M-series + 32GB+)", body)
+        send_email("[Janpara] MacBook alerts (RAM>=16GB)", body)
         mark_heartbeat_now()
         logging.info("Email sent.")
     else:
