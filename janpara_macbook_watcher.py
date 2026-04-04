@@ -199,11 +199,13 @@ def extract_stock_count(text: str) -> int | None:
 APPLE_SILICON_RE = re.compile(r"\b(?:Apple\s*)?M(\d)\b", re.IGNORECASE)
 APPLE_SILICON_VARIANT_RE = re.compile(r"\bM(\d)\s*(Pro|Max|Ultra)\b", re.IGNORECASE)
 
+MAX_REASONABLE_RAM_GB = 128
 RAM_CONTEXT_RE = re.compile(r"(?:ram|memory|メモリ|メモリー|メモリー容量|記憶装置|memory\s+size)", re.IGNORECASE)
 RAM_PATTERNS = [
     (re.compile(r"メモリ\s*[:：]?\s*(\d{1,3})\s*G[B]?", re.IGNORECASE), False),
     (re.compile(r"\bRAM\s*[:：]?\s*(\d{1,3})\s*GB\b", re.IGNORECASE), False),
     (re.compile(r"\b(\d{1,3})\s*GB\s+RAM\b", re.IGNORECASE), False),
+    (re.compile(r"\b(\d{1,3})\s*G[B]?\s*/\s*(?:\d{2,4}\s*G[B]?|\d(?:\.\d+)?\s*TB)\b", re.IGNORECASE), False),
     (re.compile(r"/\s*(\d{1,3})\s*G\s*/", re.IGNORECASE), True),
     (re.compile(r"\b(\d{1,3})\s*G\b", re.IGNORECASE), True),
     (re.compile(r"\b(\d{1,3})\s*GB\b", re.IGNORECASE), True),
@@ -238,13 +240,23 @@ def extract_ram_gb(text: str) -> int | None:
             if not RAM_CONTEXT_RE.search(ctx):
                 continue
         try:
-            return int(m.group(1))
+            ram_gb = int(m.group(1))
+            if ram_gb > MAX_REASONABLE_RAM_GB:
+                continue
+            return ram_gb
         except Exception:
             pass
     return None
 
 KBD_JP_RE = re.compile(r"(JIS|日本語|かな|JPN|JP配列)", re.IGNORECASE)
 KBD_US_RE = re.compile(r"(\bUS\b|ANSI|英語|英字|US配列|英語配列)", re.IGNORECASE)
+RAM_SPEC_LABELS = (
+    "標準メモリ容量",
+    "メモリ容量",
+    "メモリ",
+    "最大メモリ（RAM）容量",
+    "最大メモリ(RAM)容量",
+)
 
 def detect_keyboard_layout(text: str) -> str:
     if not text:
@@ -254,6 +266,56 @@ def detect_keyboard_layout(text: str) -> str:
     if KBD_US_RE.search(text):
         return "US"
     return ""
+
+def extract_ram_from_value(text: str) -> int | None:
+    if not text:
+        return None
+    m = re.search(r"(\d{1,3})\s*G[B]?\b", text, re.IGNORECASE)
+    if not m:
+        return None
+    try:
+        ram_gb = int(m.group(1))
+    except Exception:
+        return None
+    if ram_gb > MAX_REASONABLE_RAM_GB:
+        return None
+    return ram_gb
+
+def extract_specs_map(soup: BeautifulSoup) -> dict[str, str]:
+    specs = {}
+
+    for tr in soup.find_all("tr"):
+        header = tr.find(["th", "dt"])
+        value = tr.find(["td", "dd"])
+        if not header or not value:
+            cells = tr.find_all(["th", "td"], recursive=False)
+            if len(cells) >= 2:
+                header, value = cells[0], cells[1]
+        if not header or not value:
+            continue
+        key = clean_text(header.get_text(" ", strip=True))
+        val = clean_text(value.get_text(" ", strip=True))
+        if key and val:
+            specs[key] = val
+
+    for dl in soup.find_all("dl"):
+        dts = dl.find_all("dt", recursive=False)
+        dds = dl.find_all("dd", recursive=False)
+        for dt, dd in zip(dts, dds):
+            key = clean_text(dt.get_text(" ", strip=True))
+            val = clean_text(dd.get_text(" ", strip=True))
+            if key and val and key not in specs:
+                specs[key] = val
+
+    return specs
+
+def extract_ram_from_specs(specs: dict[str, str]) -> int | None:
+    for label in RAM_SPEC_LABELS:
+        value = specs.get(label)
+        ram_gb = extract_ram_from_value(value or "")
+        if ram_gb:
+            return ram_gb
+    return None
 
 # =========================
 # RETRIES / BUSY
@@ -424,24 +486,31 @@ def parse_listing_cards(soup: BeautifulSoup) -> list[dict]:
 # =========================
 # DETAIL ENRICHMENT (CPU/RAM/KBD)
 # =========================
-def fetch_detail_text(url: str) -> str:
+def fetch_detail_payload(url: str) -> dict:
     r = request_get_with_retries(url)
     soup = BeautifulSoup(r.content, "lxml", from_encoding="utf-8")
-    return clean_text(soup.get_text(" ", strip=True))
+    return {
+        "text": clean_text(soup.get_text(" ", strip=True)),
+        "specs": extract_specs_map(soup),
+    }
 
 def enrich_from_detail(item: dict, cache: dict) -> dict:
     url = item.get("href") or ""
     if not url:
         return item
     if url in cache:
-        text = cache[url]
+        payload = cache[url]
     else:
-        text = fetch_detail_text(url)
-        cache[url] = text
+        payload = fetch_detail_payload(url)
+        cache[url] = payload
+
+    text = payload.get("text", "")
+    specs = payload.get("specs", {})
+    detail_ram_gb = extract_ram_from_specs(specs) or extract_ram_gb(text) or 0
 
     # fill missing or strengthen
     item["cpu"] = item.get("cpu") or extract_cpu_label(text)
-    item["ram_gb"] = int(item.get("ram_gb") or 0) or int(extract_ram_gb(text) or 0)
+    item["ram_gb"] = int(item.get("ram_gb") or 0) or int(detail_ram_gb)
     item["kbd"] = item.get("kbd") or detect_keyboard_layout(text)
 
     return item
